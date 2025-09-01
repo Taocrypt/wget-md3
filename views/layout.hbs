@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wget MD3 - Material Design 3 网站下载器</title>
+    <meta name="keywords" content="Wget MD3,网站下载器,Material Design 3,在线扒站,网站源代码下载,HTML下载,网站克隆,网站备份,网页抓取,文件合并">
+    <meta name="description" content="基于Material Design 3设计的现代化网站下载工具，支持完整网站资源抓取、文件合并、离线浏览等功能。无需依赖wget，支持Windows系统。">
+    
+    <!-- Material Design 3 Styles -->
+    <link rel="stylesheet" href="/stylesheets/md3-style.css">
+    
+    <!-- Material Icons -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0">
+    
+    <!-- Roboto Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap">
+    
+    <!-- Socket.IO -->
+    <script src="/stylesheets/socket.js"></script>
+    <script async defer src="/stylesheets/buttons.js"></script>
+  </head>
+  <body>
+    {{{body}}}
+  </body>
+
+<script>
+  var numberOfFiles = 0;
+  let downloadWebsite = null;
+  
+  // connect to current socket.io server
+  var socket = io.connect(document.URL);
+  if(!localStorage['token'])
+    localStorage['token']=generateToken(20);
+  
+  // wait for events for this token
+  socket.on(localStorage['token'],(event)=>{
+    console.log(event);
+    
+    const progressContainer = document.getElementById('progress-container');
+    const progressBar = document.getElementById('progress-bar');
+    const statusText = document.getElementById('status-text');
+    const logContainer = document.getElementById('log');
+    const filesCountContainer = document.getElementById('files-count-container');
+    const filesCount = document.getElementById('files-count');
+    
+    if(event.progress == "Converting") {
+      progressContainer.style.display = 'block';
+      statusText.textContent = '正在压缩文件，请稍候...';
+      progressBar.style.width = '100%';
+    }
+    else if(event.progress == "Completed") {
+      progressContainer.style.display = 'none';
+      
+      if(event.isMerged) {
+        statusText.textContent = '合并文件生成完成！';
+      } else {
+        statusText.textContent = '下载完成！';
+      }
+      
+      // Show download button
+      const downloadBtn = document.getElementById('download-result');
+      downloadBtn.style.display = 'inline-flex';
+      
+      // 更新按钮文本根据是否合并
+      const buttonText = downloadBtn.querySelector('.download-btn-text');
+      const buttonIcon = downloadBtn.querySelector('.material-symbols-outlined');
+      
+      if(event.isMerged) {
+        buttonText.textContent = '下载 HTML 文件';
+        buttonIcon.textContent = 'description'; // 文档图标
+        
+        downloadBtn.onclick = function() {
+          // 直接下载HTML文件
+          window.location = '/sites/' + event.file + '.html';
+        };
+      } else {
+        buttonText.textContent = '下载 ZIP 文件';
+        buttonIcon.textContent = 'folder_zip'; // ZIP图标
+        
+        downloadBtn.onclick = function() {
+          // 下载ZIP文件
+          window.location = '/sites/' + event.file;
+        };
+      }
+      
+      // Show snackbar
+      const message = event.isMerged 
+        ? '合并HTML文件已准备就绪！所有资源已内嵌到单个HTML文件中。' 
+        : '文件已准备就绪，请尽快下载。本站不会长期保存压缩包。';
+      showSnackbar(message);
+    }
+    else {
+      progressContainer.style.display = 'block';
+      if(event.progress.includes('200 OK')) {
+        numberOfFiles++;
+        filesCountContainer.style.display = 'block';
+        filesCount.textContent = numberOfFiles;
+      }
+      
+      // Update log
+      if(logContainer) {
+        logContainer.innerHTML = `<div class="log-entry">${event.progress}</div>`;
+        logContainer.scrollTop = logContainer.scrollHeight;
+      }
+    }
+  });
+  
+  // Download a website on click
+  function startDownload() {
+    const websiteInput = document.getElementById('website-url');
+    const website = websiteInput.value.trim();
+    const mergeFilesCheckbox = document.getElementById('merge-files');
+    const mergeFiles = mergeFilesCheckbox ? mergeFilesCheckbox.checked : false;
+    
+    // 调试日志
+    console.log('===== 前端发送请求 =====');
+    console.log('复选框元素:', mergeFilesCheckbox);
+    console.log('复选框状态:', mergeFiles);
+    console.log('mergeFiles 值:', mergeFiles, '(类型:', typeof mergeFiles, ')');
+    console.log('=========================');
+    
+    if(!website) {
+      showSnackbar('请输入网站地址', 'error');
+      return;
+    }
+    
+    if(!website.startsWith('http://') && !website.startsWith('https://')) {
+      showSnackbar('请输入有效的网站地址（需要包含 http:// 或 https://）', 'error');
+      return;
+    }
+    
+    // Reset UI
+    document.getElementById('files-count-container').style.display = 'none';
+    document.getElementById('download-result').style.display = 'none';
+    numberOfFiles = 0;
+    
+    console.log("Now downloading the website ... %s", website);
+    console.log("Merge files option: %s", mergeFiles);
+    
+    const requestData = { 
+      token: localStorage['token'], 
+      website: website,
+      mergeFiles: mergeFiles
+    };
+    
+    console.log('发送的请求数据:', JSON.stringify(requestData, null, 2));
+    socket.emit('request', requestData);
+  }
+  
+  // Show snackbar notification
+  function showSnackbar(message, type = 'info') {
+    const snackbar = document.createElement('div');
+    snackbar.className = 'md3-snackbar';
+    snackbar.textContent = message;
+    
+    if(type === 'error') {
+      snackbar.style.backgroundColor = 'var(--md-sys-color-error-container)';
+      snackbar.style.color = 'var(--md-sys-color-on-error-container)';
+    }
+    
+    document.body.appendChild(snackbar);
+    
+    setTimeout(() => {
+      snackbar.remove();
+    }, 4000);
+  }
+  
+  // Generate token for each user for the first time.
+  function generateToken(n) {
+    var chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    var token = '';
+    for(var i = 0; i < n; i++) {
+        token += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return token;
+  }
+  
+  // Initialize page
+  document.addEventListener('DOMContentLoaded', function() {
+    const downloadBtn = document.getElementById('download-btn');
+    const websiteInput = document.getElementById('website-url');
+    const mergeCheckbox = document.getElementById('merge-files');
+    
+    if(downloadBtn) {
+      downloadBtn.addEventListener('click', startDownload);
+    }
+    
+    if(websiteInput) {
+      websiteInput.addEventListener('keypress', function(e) {
+        if(e.key === 'Enter') {
+          startDownload();
+        }
+      });
+    }
+    
+    // 增强复选框交互
+    if(mergeCheckbox) {
+      // 监听复选框状态变化
+      mergeCheckbox.addEventListener('change', function(e) {
+        console.log('合并文件选项:', e.target.checked);
+        
+        // 可以在这里添加反馈效果
+        const checkboxContainer = e.target.closest('.md3-checkbox');
+        if(checkboxContainer) {
+          if(e.target.checked) {
+            checkboxContainer.style.transform = 'scale(1.1)';
+            setTimeout(() => {
+              checkboxContainer.style.transform = 'scale(1)';
+            }, 150);
+          }
+        }
+      });
+      
+      // 添加键盘支持
+      mergeCheckbox.addEventListener('keydown', function(e) {
+        if(e.key === ' ' || e.key === 'Enter') {
+          e.preventDefault();
+          this.checked = !this.checked;
+          this.dispatchEvent(new Event('change'));
+        }
+      });
+    }
+  });
+</script>
+
+</html>
+
